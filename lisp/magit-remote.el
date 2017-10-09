@@ -83,9 +83,9 @@ Then show the status buffer for the new repository."
        (with-current-buffer (process-get process 'command-buf)
          (magit-status-internal directory))))))
 
-;;; Setup
+;;; Remote Popup
 
-(defcustom magit-remote-add-set-remote.pushDefault 'ask-if-unset
+(defcustom magit-remote-add-set-remote.pushDefault 'ask-if-unset ; TODO move?
   "Whether to set the value of `remote.pushDefault' after adding a remote.
 
 If `ask', then always ask.  If `ask-if-unset', then ask, but only
@@ -100,17 +100,34 @@ variable isn't already set."
                  (string :tag "set if named")
                  (const  :tag "don't set")))
 
+(defvar magit-remote-popup-show-variables t) ; TODO option
+
 ;;;###autoload (autoload 'magit-remote-popup "magit-remote" nil t)
 (magit-define-popup magit-remote-popup
   "Popup console for remote commands."
   :man-page "git-remote"
   :default-arguments '("-f")
+  ;; FIXME should come after arguments
   :switches '("Switches for add"
               (?f "Fetch after add" "-f"))
   :actions  '((?a "Add"     magit-remote-add)
               (?r "Rename"  magit-remote-rename)
-              (?k "Remove"  magit-remote-remove)
-              (?u "Set url" magit-remote-set-url)))
+              (?k "Remove"  magit-remote-remove))
+  :setup-function 'magit-remote-popup-setup)
+
+(defvar magit-remote-config-variables)
+
+(defun magit-remote-popup-setup (val def)
+  (magit-popup-default-setup val def)
+  (when magit-remote-popup-show-variables
+    (magit-popup-put :variables (magit-popup-convert-variables
+                                 val magit-remote-config-variables))
+    (use-local-map (copy-keymap magit-popup-mode-map))
+    (dolist (ev (-filter #'magit-popup-event-p (magit-popup-get :variables)))
+      (local-set-key (vector (magit-popup-event-key ev))
+                     'magit-invoke-popup-action))))
+
+;;; Remote Commands
 
 (defun magit-read-url (prompt &optional initial-input)
   (let ((url (magit-read-string-ns prompt initial-input)))
@@ -179,6 +196,35 @@ doing that."
 Delete the symbolic-ref \"refs/remotes/<remote>/HEAD\"."
   (interactive (list (magit-read-remote "Unset HEAD for remote")))
   (magit-run-git "remote" "set-head" remote "--delete"))
+
+;;; Remote Config Popup
+
+(defvar magit-remote-config-branch nil)
+
+;;;###autoload
+(defun magit-remote-config-popup (remote)
+  "Popup console for setting remote variables."
+  (interactive
+   (list (if (or current-prefix-arg
+                 (and (eq magit-current-popup 'magit-remote-popup)
+                      magit-remote-popup-show-variables))
+             (magit-read-local-branch "Configure remote")
+           (magit-get-upstream-remote))))
+  (let ((magit-remote-config-branch remote))
+    (magit-invoke-popup 'magit-remote-config-popup nil nil)))
+
+(defvar magit-remote-config-variables
+  '((lambda ()
+      (concat
+       (propertize "Configure " 'face 'magit-popup-heading)
+       (propertize (magit-remote-config-branch) 'face 'magit-branch-local)))
+    ;; (?d "branch.%s.description"
+    ;;     magit-edit-branch*description
+    ;;     magit-format-branch*description)
+    ))
+
+(defun magit-remote-config-branch (&optional _prompt)
+  "origin") ; TODO
 
 ;;; Fetch
 
